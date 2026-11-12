@@ -104,6 +104,16 @@ class HTTPException(Exception):
         self.detail = detail
 
 
+def Depends(dependency=None):  # noqa: N802
+    # stub：真实 FastAPI 用它注入依赖；接线测试里直接返回依赖标记即可
+    return dependency
+
+
+def Header(default=None, **kw):  # noqa: N802
+    # stub：标记一个来自请求头的参数，默认值照常返回
+    return default
+
+
 class _Route:
     def __init__(self, path, method, fn):
         self.path = path
@@ -132,6 +142,8 @@ class _FastAPI:
 fastapi = types.ModuleType("fastapi")
 fastapi.FastAPI = _FastAPI
 fastapi.HTTPException = HTTPException
+fastapi.Depends = Depends
+fastapi.Header = Header
 sys.modules["fastapi"] = fastapi
 
 responses = types.ModuleType("fastapi.responses")
@@ -193,6 +205,35 @@ paths = {(r.method, r.path) for r in app.routes}
 check("注册了评估端点", ("POST", "/api/v1/evaluate") in paths)
 check("注册了健康检查", ("GET", "/health") in paths)
 check("根路径重定向已注册", ("GET", "/") in paths)
+check("注册了证书查询端点", ("GET", "/api/v1/tls/certificate") in paths)
+check("注册了证书更换端点", ("POST", "/api/v1/tls/certificate/rotate") in paths)
+
+print("test_admin_key_gate")
+import app.main as main_mod  # noqa: E402
+
+# 未配置密钥时 fail-closed
+main_mod._admin_key = None
+try:
+    main_mod.require_admin_key(None)
+    check("无密钥拒绝访问", False)
+except RealHTTPException as exc:
+    check("无密钥拒绝访问", exc.status_code == 503)
+try:
+    main_mod.require_admin_key("anything")
+    check("无密钥一律拒绝", False)
+except RealHTTPException:
+    check("无密钥一律拒绝", True)
+
+# 配置后：错误/缺失密钥 401，正确密钥放行
+main_mod._admin_key = "secret"
+for bad in (None, "", "wrong"):
+    try:
+        main_mod.require_admin_key(bad)
+        check(f"错误密钥拒绝 {bad!r}", False)
+    except RealHTTPException as exc:
+        check(f"错误密钥拒绝 {bad!r}", exc.status_code == 401)
+main_mod.require_admin_key("secret")
+check("正确密钥放行", True)
 
 print("test_alias_ingest")
 req = EvaluateRequest(

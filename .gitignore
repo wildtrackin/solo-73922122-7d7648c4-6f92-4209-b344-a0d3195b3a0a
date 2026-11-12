@@ -6,3 +6,12 @@ venv/
 .pytest_cache/
 *.log
 .DS_Store
+
+# 本地演示 PKI 与证书持久化状态（含私钥，禁止入库）
+pki/
+tls-state/
+*.key
+*.key.pem
+certs/
+ca/
+.env

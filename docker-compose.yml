@@ -1,15 +1,42 @@
 services:
+  # 一次性任务：生成本地 CA、两套同域名证书与错配材料，并把卷属主改为 appuser。
+  # 业务服务在它成功完成后才启动。
+  pki-init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: systemd-sandbox-checker:1.1.0
+    entrypoint: ["/usr/local/bin/entrypoint.sh", "init-pki"]
+    volumes:
+      - pki-data:/var/lib/sandbox-checker/pki
+      - tls-state:/var/lib/sandbox-checker/tls
+    restart: "no"
+
   sandbox-checker:
     build:
       context: .
       dockerfile: Dockerfile
-    image: systemd-sandbox-checker:1.0.0
+    image: systemd-sandbox-checker:1.1.0
     container_name: systemd-sandbox-checker
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+    environment:
+      # 管理接口密钥（演示默认值，生产请通过 .env / secret 覆盖）
+      ADMIN_KEY: "${ADMIN_KEY:-demo-admin-key}"
+      TLS_DNS_NAME: "sandbox.local"
+      TLS_STATE_DIR: "/var/lib/sandbox-checker/tls"
+      BOOTSTRAP_CERT_FILE: "/var/lib/sandbox-checker/pki/certs/v1/cert.pem"
+      BOOTSTRAP_KEY_FILE: "/var/lib/sandbox-checker/pki/certs/v1/key.pem"
+      TLS_PORT: "8443"
     ports:
-      # 宿主机 8080 -> 容器 8080；如端口冲突可修改左侧
-      - "8080:8080"
+      # 仅对外暴露 HTTPS；容器内不存在任何明文监听端口
+      - "8443:8443"
+    volumes:
+      - pki-data:/var/lib/sandbox-checker/pki:ro
+      - tls-state:/var/lib/sandbox-checker/tls
     restart: unless-stopped
-    # 纯计算服务：只读根文件系统、无特权、不挂主机目录
+    # 纯计算 + TLS 终止：只读根文件系统、无特权、不挂主机目录
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -18,8 +45,12 @@ services:
     tmpfs:
       - /tmp:size=16m
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).status==200 else 1)"]
+      test: ["CMD", "python", "-c", "import ssl,urllib.request,sys; ctx=ssl._create_unverified_context(); sys.exit(0 if urllib.request.urlopen('https://127.0.0.1:8443/health', context=ctx, timeout=3).status==200 else 1)"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 5s
+
+volumes:
+  pki-data:
+  tls-state:

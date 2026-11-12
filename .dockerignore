@@ -8,3 +8,9 @@ examples
 .dockerignore
 Dockerfile
 docker-compose.yml
+.env
+.env.*
+pki
+tls-state
+*.key
+*.key.pem

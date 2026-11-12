@@ -122,3 +122,42 @@ class EvaluateResponse(BaseModel):
     events_evaluated: int = Field(description="实际评估的事件数；遇首个失败即停止")
     policy_effective: EffectivePolicy = Field(description="归一化后实际生效的策略")
     trace: list[TraceEntry] = Field(description="逐事件的完整判定轨迹")
+
+
+# --------------------------------------------------------------------------- #
+# 证书热更换
+# --------------------------------------------------------------------------- #
+class CertRotateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    certificate_pem: str = Field(
+        description="单张 PEM 证书（必须且只能包含一张 CERTIFICATE PEM 块）"
+    )
+    private_key_pem: str = Field(
+        description="与证书匹配的未加密 PEM 私钥（拒绝加密私钥）"
+    )
+    current_fingerprint: str = Field(
+        description=(
+            "提交者认为的当前证书 SHA-256 指纹（hex，可带冒号/空格）；"
+            "与服务实际指纹不一致时返回 409"
+        )
+    )
+
+
+class CertInfo(BaseModel):
+    dns_name: str = Field(description="启动配置要求的 DNS 名")
+    fingerprint_sha256: Optional[str] = Field(
+        default=None, description="当前在线证书的 SHA-256 指纹（小写 hex）"
+    )
+    subject: Optional[str] = Field(default=None, description="证书主题（RFC4514）")
+    not_after: Optional[str] = Field(default=None, description="证书到期时间（ISO-8601）")
+
+
+class CertRotateResponse(BaseModel):
+    status: Literal["rotated", "unchanged"] = Field(
+        description="rotated=已切换新版；unchanged=提交的就是当前证书（幂等）"
+    )
+    previous_fingerprint: Optional[str] = Field(
+        default=None, description="切换前的证书指纹"
+    )
+    current: CertInfo = Field(description="切换后的当前证书信息（不含私钥）")
